@@ -1,24 +1,22 @@
-# RE//LAB React frontend
+# ReverseEngineer — KinderJoy prototype
 
-## Run the frontend
+A responsive frontend and small Node.js backend based on the supplied ReverseEngineer presentation.
 
-In a terminal, from this folder:
+## Run
 
-```powershell
-npm install
-npm run dev
+Requires Node.js 18 or newer. From this directory:
+
+```sh
+node server.js
 ```
 
-Open the URL Vite prints (usually `http://localhost:5173`). Start the FastAPI backend from the `outputs` folder separately:
+Then open <http://localhost:4173>. Set `PORT` to use another port.
 
-```powershell
-py -m uvicorn backend:app --reload --host 127.0.0.1 --port 8000
-```
+## Included
 
-The frontend sends uploads to `http://127.0.0.1:8000/api/analyze`. To use another API address, create a `.env` file here with:
+- Drag-and-drop or browse to upload text, code, logs, JSON, CSV, or SVG files.
+- A sample code workflow so the analysis screen can be explored without a file.
+- `POST /api/analyze` returns inferred components, a reconstructed process, and ranked alternative hypotheses.
+- `GET /api/health` reports whether the backend is available.
 
-```text
-VITE_API_URL=http://127.0.0.1:8000
-```
-
-The API currently performs static triage only. It does not execute or fully disassemble uploaded files.
+The analysis is a local heuristic prototype. Confidence values illustrate the deck's concept and are not produced by a trained AI model. Uploaded content is processed in memory and is not stored by the server.

@@ -1,119 +1,47 @@
-import { useRef, useState } from "react";
+import { useRef, useState } from 'react'
+import './App.css'
 
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-const navigation = [
-  ["▦", "Overview"], ["⌘", "Static analysis", "02"], ["▷", "Dynamic runs"],
-  ["⌕", "String explorer"], ["⌗", "Disassembly"], ["▤", "Recent samples"], ["◈", "Signatures"],
-];
-const samples = [
-  { name: "router_firmware_v2.8.1.bin", format: "ELF · ARM", hash: "9f2a…c71e", status: "Analyzed", tone: "good" },
-  { name: "update_service.exe", format: "PE · x64", hash: "b813…02ad", status: "Review", tone: "warn" },
-  { name: "libcrypto_custom.so", format: "ELF · x64", hash: "51de…a990", status: "Analyzed", tone: "good" },
-  { name: "boot_stage2.img", format: "RAW · ARM", hash: "0cc4…81f2", status: "Queued", tone: "" },
-];
-
-function CardTitle({ children, tag, action }) {
-  return <div className="card-head"><h2>{children}</h2>{action || (tag && <span className="tag">{tag}</span>)}</div>;
-}
+const sample = `function buildReport(records) {\n  const valid = records.filter(validate);\n  const normalized = valid.map(normalize);\n  return aggregate(normalized);\n}\n\nfunction validate(record) { return Boolean(record.id); }\nfunction normalize(record) { return { ...record, name: record.name.trim() }; }\nfunction aggregate(records) { return records.length; }`
 
 export default function App() {
-  const inputRef = useRef(null);
-  const [active, setActive] = useState("Overview");
-  const [file, setFile] = useState(null);
-  const [analysis, setAnalysis] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const [toast, setToast] = useState("");
+  const input = useRef(null)
+  const [file, setFile] = useState(null)
+  const [source, setSource] = useState('')
+  const [result, setResult] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
-  function notify(message) {
-    setToast(message);
-    window.clearTimeout(notify.timer);
-    notify.timer = window.setTimeout(() => setToast(""), 2800);
+  async function choose(nextFile) {
+    if (!nextFile) return
+    setError(''); setResult(null)
+    if (nextFile.size > 200_000) { setError('Choose a source file smaller than 200 KB.'); return }
+    setFile(nextFile); setSource(await nextFile.text())
   }
-
-  async function analyzeFile(selectedFile) {
-    if (!selectedFile) return;
-    setFile(selectedFile);
-    setAnalysis(null);
-    setBusy(true);
-    const form = new FormData();
-    form.append("file", selectedFile);
+  async function analyze() {
+    if (!file) { setError('Choose a source file or load the sample first.'); return }
+    setBusy(true); setError('')
     try {
-      const response = await fetch(`${API_URL}/api/analyze`, { method: "POST", body: form });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.detail || `Request failed (${response.status})`);
-      setAnalysis(body);
-      notify("Static analysis complete.");
-    } catch (error) {
-      notify(`Could not analyze file: ${error.message}. Is the backend running?`);
-    } finally {
-      setBusy(false);
-      if (inputRef.current) inputRef.current.value = "";
-    }
+      const response = await fetch('/api/analyze', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filename: file.name, source }) })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.detail || 'Analysis could not be completed.')
+      setResult(data)
+    } catch (err) { setError(`${err.message} Is the Python backend running on port 8000?`) }
+    finally { setBusy(false) }
   }
+  function loadSample() { setFile(new File([sample], 'report_builder.js', { type: 'text/javascript' })); setSource(sample); setResult(null); setError('') }
+  function reset() { setFile(null); setSource(''); setResult(null); setError(''); if (input.current) input.current.value = '' }
 
-  function onDrop(event) {
-    event.preventDefault();
-    setDragging(false);
-    analyzeFile(event.dataTransfer.files?.[0]);
-  }
-
-  const profile = analysis || {
-    architecture: "ARM · 32-bit", endianness: "Little-endian", format: "ELF",
-    entropy: 6.42, sha256: "9f2a…c71e", size_bytes: 8.4 * 1024 * 1024,
-  };
-  const displayedSamples = analysis
-    ? [{ name: analysis.filename, format: `${analysis.format} · ${analysis.architecture}`, hash: `${analysis.sha256.slice(0, 4)}…${analysis.sha256.slice(-4)}`, status: "Analyzed", tone: "good" }, ...samples.slice(1)]
-    : samples;
-
-  return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><div className="mark">R</div><div className="brandtext">RE//LAB<small>ANALYSIS WORKSPACE</small></div></div>
-        <div className="section-label">WORKSPACE</div>
-        {navigation.slice(0, 5).map(([icon, label, badge]) => <button key={label} className={`nav ${active === label ? "active" : ""}`} onClick={() => { setActive(label); if (label !== "Overview") notify(`${label} view selected.`); }}><span className="ico">{icon}</span><span className="navtext">{label}</span>{badge && <span className="badge">{badge}</span>}</button>)}
-        <div className="section-label">LIBRARY</div>
-        {navigation.slice(5).map(([icon, label]) => <button key={label} className={`nav ${active === label ? "active" : ""}`} onClick={() => { setActive(label); notify(`${label} view selected.`); }}><span className="ico">{icon}</span><span className="navtext">{label}</span></button>)}
-        <div className="section-label">CURRENT PROJECT</div>
-        <div className="project"><strong>firmware-audit-07</strong><span>3 samples · updated 4m ago</span></div>
-        <div className="online"><span className="dot" />LOCAL SANDBOX READY</div>
-      </aside>
-
-      <main className="main">
-        <header className="top"><div className="crumb">workspace&nbsp; / &nbsp;<b>{active.toLowerCase()}</b></div><div className="topright"><span>⌘ K</span><span>DOCS</span><div className="avatar">A</div></div></header>
-        <section className="content">
-          <div className="heading"><div><div className="eyebrow">REVERSE ENGINEERING / PROJECT 07</div><h1>Analysis overview</h1><p>Inspect binaries, map behavior, and document what you find.</p></div><div className="actions"><button className="btn" onClick={() => notify("New project setup is ready to connect.")}>＋ New project</button><button className="btn primary" onClick={() => inputRef.current?.click()}>{busy ? "Analyzing…" : "↑  Analyze a file"}</button></div></div>
-
-          <div className="stats"><div className="stat"><label>SAMPLES ANALYZED</label><strong>{analysis ? "25" : "24"}</strong><small>+3 this week</small></div><div className="stat"><label>FUNCTIONS IDENTIFIED</label><strong>1,386</strong><small>across 8 binaries</small></div><div className="stat"><label>OPEN FINDINGS</label><strong>07</strong><small className="orange">2 need review</small></div><div className="stat"><label>LAST ANALYSIS</label><strong className="last-analysis">{analysis ? "Just now" : "4 min ago"}</strong><small>{profile.format} · {profile.architecture}</small></div></div>
-
-          <div className="workspace-grid">
-            <section className="card"><CardTitle tag="STATIC TRIAGE">▶ &nbsp;NEW ANALYSIS</CardTitle>
-              <div className={`upload ${dragging ? "drag" : ""}`} onClick={() => inputRef.current?.click()} onDragOver={e => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={onDrop} role="button" tabIndex="0" onKeyDown={e => e.key === "Enter" && inputRef.current?.click()}>
-                <div className="upicon">⇧</div><strong>{busy ? "Analyzing file…" : "Drop a binary to start an analysis"}</strong><span>or <u>browse files</u> · ELF, PE, Mach-O, firmware images</span>
-                <input ref={inputRef} type="file" onChange={e => analyzeFile(e.target.files?.[0])} />
-              </div>
-              {file && <div className="file-row"><div className="file-icon">{file.name.split(".").pop().slice(0, 4).toUpperCase()}</div><div className="file-info"><strong>{file.name}</strong><span>{(file.size / 1024 / 1024).toFixed(2)} MB · {analysis ? `SHA256 ${analysis.sha256.slice(0, 4)}…${analysis.sha256.slice(-4)}` : "submitted for analysis"}</span></div><span className={`status ${busy ? "working" : ""}`}>{busy ? "RUNNING" : analysis ? "ANALYZED" : "READY"}</span></div>}
-              {analysis && <div className="results"><div className="results-title">ANALYSIS RESULT <span className="tag">STATIC</span></div><p>{analysis.analysis_note}</p><div className="string-list"><strong>PRINTABLE STRINGS ({analysis.printable_strings.length})</strong>{analysis.printable_strings.slice(0, 8).map((text, index) => <code key={`${index}-${text}`}>{text}</code>)}</div></div>}
-              <CardTitle action={<button className="btn compact" onClick={() => notify("Sample library view selected.")}>View all ↗</button>}>RECENT SAMPLES</CardTitle>
-              <div className="table-wrap"><table className="sample-table"><thead><tr><th>FILE</th><th>FORMAT</th><th>SHA256</th><th>STATUS</th></tr></thead><tbody>{displayedSamples.map((sample, i) => <tr key={`${sample.name}-${i}`}><td>{sample.name}</td><td><span className="pill">{sample.format}</span></td><td className="hash">{sample.hash}</td><td><span className={`pill ${sample.tone}`}>{sample.status}</span></td></tr>)}</tbody></table></div>
-            </section>
-
-            <div className="rightcol">
-              <section className="card"><CardTitle tag="3 / 4 COMPLETE">ANALYSIS PIPELINE</CardTitle><div className="pipeline"><PipelineStep done number="✓" title="File identification" detail="FORMAT · ARCH · ENDIANNESS" time="0.2s"/><PipelineStep done number="✓" title="Static analysis" detail="SECTIONS · IMPORTS · STRINGS" time="1.8s"/><PipelineStep current number="3" title="Function recovery" detail="CONTROL FLOW · SYMBOLS" time={busy ? "RUNNING" : "READY"}/><PipelineStep number="4" title="Behavior report" detail="SUMMARY · FINDINGS" time="WAITING"/></div></section>
-              <section className="card"><CardTitle tag="SAMPLE">FILE PROFILE</CardTitle><div className="quick"><ProfileRow label="Format" value={profile.format}/><ProfileRow label="Architecture" value={profile.architecture}/><ProfileRow label="Endianness" value={profile.endianness}/><ProfileRow label="File size" value={`${(profile.size_bytes / 1024 / 1024).toFixed(2)} MB`}/><ProfileRow label="Entropy" value={`${profile.entropy} / 8.0`}/><ProfileRow label="SHA-256" value={profile.sha256.length > 22 ? `${profile.sha256.slice(0, 8)}…${profile.sha256.slice(-6)}` : profile.sha256}/></div></section>
-            </div>
-          </div>
-          <footer className="footer"><span>RE//LAB · LOCAL ANALYSIS ENVIRONMENT</span><span>ENGINE V0.9.4 · <b>● ALL SYSTEMS OPERATIONAL</b></span></footer>
-        </section>
-      </main>
-      {toast && <div className="toast" role="status">{toast}</div>}
-    </div>
-  );
-}
-
-function PipelineStep({ done = false, current = false, number, title, detail, time }) {
-  return <div className={`step ${done ? "done" : ""} ${current ? "current" : ""}`}><div className="stepnum">{number}</div><div className="steptext"><strong>{title}</strong><small>{detail}</small></div><time>{time}</time></div>;
-}
-function ProfileRow({ label, value }) {
-  return <div className="quickrow"><span>{label}</span><code>{value}</code></div>;
+  return <div className="app-shell">
+    <aside className="sidebar"><a className="brand" href="#top"><span className="brand-mark">r<span>↗</span></span><span>Reverse<span className="brand-light">Engineer</span><small>CODE EXPLORER</small></span></a><div className="side-label">WORKSPACE</div><div className="side-nav active">⌘ <span>New analysis</span></div><div className="sidebar-bottom"><div className="help-card"><b>Start with source code</b><p>Map functions, imports, and direct calls to explore how a program is structured.</p></div><div className="profile"><div className="avatar">R</div><div><b>ReverseEngineer</b><small>Code workspace</small></div></div></div></aside>
+    <main id="top"><header className="topbar"><span>Workspace <i>/</i> <b>New analysis</b></span><span className="online"><i /> API analysis</span></header>
+      <section className="intro"><div className="eyebrow">SOURCE CODE REVERSE ENGINEERING</div><h1>Understand how the code<br/><em>fits together.</em></h1><p>Inspect a source file to map functions, classes, imports, and direct call relationships. Your code is analyzed locally by the backend.</p></section>
+      <div className="layout"><section className="content"><div className="drop-zone" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); choose(e.dataTransfer.files[0]) }}><input ref={input} type="file" hidden accept=".js,.jsx,.ts,.tsx,.py,.java,.go,.rs,.php,.rb" onChange={e => choose(e.target.files[0])}/><div className="upload-icon">↑</div><div className="drop-copy"><h2>Drop source code to inspect</h2><p>JavaScript, TypeScript, Python, Java, Go, Rust, PHP, Ruby</p></div><button className="button secondary" onClick={() => input.current?.click()}>Browse files</button><small>Single file · up to 200 KB · processed locally</small></div>
+        {file && <div className="selected-file"><span>▤</span><b>{file.name}</b><small>{(file.size / 1024).toFixed(1)} KB</small><button onClick={reset} aria-label="Remove file">×</button></div>}
+        <div className="actions"><button className="button primary" onClick={analyze} disabled={busy}>{busy ? 'Scanning source…' : '✳  Analyze code  →'}</button><button className="sample" onClick={loadSample}>Try sample ↗</button></div>
+        {error && <div className="error">{error}</div>}
+        {result && <section className="results"><div className="result-title"><div><small>STATIC ANALYSIS COMPLETE</small><h2>Code structure and possible paths</h2></div><button className="button secondary" onClick={reset}>＋ New analysis</button></div><p className="summary">{result.summary} <span>{result.analysis_type}</span></p><div className="result-grid"><div className="panel"><div className="panel-heading"><b>Detected call path</b><small>{result.language}</small></div><div className="flow">{result.hypotheses[0].steps.map((step, i) => <span key={`${step}-${i}`}>{i > 0 && <i>→</i>}{step}</span>)}</div><div className="subhead">DECLARATIONS AND IMPORTS <span>{result.components.length}</span></div><div className="chips">{result.components.map((item, i) => <span key={`${item}-${i}`}>{item}</span>)}</div>{result.calls.length > 0 && <><div className="subhead">DIRECT CALL RELATIONSHIPS <span>{result.calls.length}</span></div><div className="call-list">{result.calls.map((call, i) => <div key={i}><code>{call.from}</code><i>→</i><code>{call.to}</code></div>)}</div></>}</div><div className="panel"><div className="panel-heading"><b>Possible execution paths</b><small>Ranked scan estimates</small></div>{result.hypotheses.map(item => <div className="hypothesis" key={item.name}><div><b>{item.name}</b><strong>{item.confidence}%</strong></div><div className="meter"><i style={{ width: `${item.confidence}%` }}/></div><p>{item.description}</p></div>)}<div className="note">Static scan only. These estimates are not runtime traces.</div></div></div></section>}
+      </section><aside className="right"><div className="guide"><b>From source to structure</b><div><i>01</i><p><b>Inspect declarations</b><small>Find functions and classes in the file.</small></p></div><div><i>02</i><p><b>Map relationships</b><small>Detect imports and direct function calls.</small></p></div><div><i>03</i><p><b>Review likely paths</b><small>Explore possible flows and limitations.</small></p></div></div><div className="aside-note">The scan reads source patterns only. It does not execute your code.</div></aside></div>
+      <footer>ReverseEngineer · Source code structure explorer</footer>
+    </main>
+  </div>
 }
